@@ -1,4 +1,10 @@
-from zotero_curator.cli import parse_arxiv_id, build_attachment_name
+from zotero_curator.cli import (
+    build_attachment_name,
+    index_collections,
+    parse_arxiv_id,
+    resolve_collection_path_existing,
+    strip_arxiv_version,
+)
 
 
 def test_parse_arxiv_id_plain() -> None:
@@ -18,3 +24,29 @@ def test_build_attachment_name() -> None:
     out = build_attachment_name(parent)
     assert out.startswith("Madaan - 2023 - Self-Refine")
     assert out.endswith(".pdf")
+
+
+def test_strip_arxiv_version() -> None:
+    assert strip_arxiv_version("2501.12948v2") == "2501.12948"
+    assert strip_arxiv_version("2501.12948") == "2501.12948"
+
+
+def test_resolve_collection_prefers_existing_full_path() -> None:
+    collections = [
+        {"data": {"key": "ROOT_A", "name": "Artificial Intelligence", "parentCollection": None, "version": 100}},
+        {"data": {"key": "ROOT_B", "name": "Artificial Intelligence", "parentCollection": None, "version": 200}},
+        {"data": {"key": "LLM_A", "name": "Large Language Models", "parentCollection": "ROOT_A", "version": 100}},
+        {"data": {"key": "LLM_B", "name": "Large Language Models", "parentCollection": "ROOT_B", "version": 200}},
+        {"data": {"key": "CTX_A", "name": "Context Engineering", "parentCollection": "LLM_A", "version": 100}},
+        {"data": {"key": "CTX_B", "name": "Context Engineering", "parentCollection": "LLM_B", "version": 200}},
+        {"data": {"key": "SELF_A", "name": "Self-Refinement", "parentCollection": "CTX_A", "version": 100}},
+        {"data": {"key": "SELF_B", "name": "Self-Refinement", "parentCollection": "CTX_B", "version": 200}},
+    ]
+    by_key, by_slot, _ = index_collections(collections)
+    chain, leaf = resolve_collection_path_existing(
+        path_segments=["Artificial Intelligence", "Large Language Models", "Context Engineering", "Self-Refinement"],
+        by_key=by_key,
+        by_slot=by_slot,
+    )
+    assert leaf == "SELF_A"
+    assert chain == ["ROOT_A", "LLM_A", "CTX_A", "SELF_A"]
