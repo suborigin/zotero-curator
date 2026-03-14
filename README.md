@@ -1,12 +1,10 @@
-![zotero-curator banner](assets/banner.svg)
-
 # zotero-curator
 
 [![CI](https://github.com/suborigin/zotero-curator/actions/workflows/ci.yml/badge.svg)](https://github.com/suborigin/zotero-curator/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/zotero-curator)](https://pypi.org/project/zotero-curator/)
-[![Python](https://img.shields.io/pypi/pyversions/zotero-curator)](https://pypi.org/project/zotero-curator/)
+[![PyPI](https://img.shields.io/badge/PyPI-pending-lightgrey)](https://pypi.org/project/zotero-curator/)
+[![Python](https://img.shields.io/badge/Python-%3E%3D3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Zotero](https://img.shields.io/badge/Zotero-Compatible-red)](https://www.zotero.org/)
+[![Zotero API](https://img.shields.io/badge/Zotero%20API-v3-red)](https://www.zotero.org/support/dev/web_api/v3/start)
 
 Production-grade Zotero ingestion and curation for AI-assisted research workflows.
 
@@ -33,15 +31,18 @@ Most ad-hoc scripts can add items, but fail on long-term reliability:
 ## Architecture
 
 ```mermaid
-flowchart LR
-  A[Plan YAML/JSON] --> B[Dedup Upsert]
-  B --> C[Collection Path Ensure]
-  C --> D[PDF Source Resolve arXiv]
-  D --> E[Official File Upload imported_file]
-  E --> F[Storage Copy Local]
-  F --> G[Attachment Rename filename+title]
-  G --> H[Optional Prune Temp Attachments]
-  H --> I[JSON Report]
+flowchart TD
+  A["🧠 Research Plan (YAML/JSON)"] --> B["🔎 Detect Existing Items (DOI/arXiv/title)"]
+  B --> C["🗂️ Build Collection Path"]
+  C --> D["📄 Resolve PDF Source (arXiv)"]
+  D --> E["☁️ Official Zotero Upload (imported_file)"]
+  E --> F["💾 Local Storage Mirror (storage/&lt;itemKey&gt;)"]
+  F --> G["🏷️ Auto Rename (Author - Year - Title)"]
+  G --> H{"🧹 Prune Temporary Attachments?"}
+  H -->|Yes| I["🧼 Remove linked_url/imported_url/linked_file"]
+  H -->|No| J["📦 Keep Existing Extras"]
+  I --> K["✅ Sync-safe Zotero Item"]
+  J --> K
 ```
 
 ## Install
@@ -54,6 +55,17 @@ or local dev:
 
 ```bash
 pip install -e .
+```
+
+## PyPI status
+
+PyPI publication is not live yet, so the PyPI badge is intentionally marked as `pending`.
+
+When release automation is ready, publish with:
+
+```bash
+python -m build
+python -m twine upload dist/*
 ```
 
 ## Credentials
