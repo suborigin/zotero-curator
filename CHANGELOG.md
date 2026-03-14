@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+- Deduplicate existing item collection memberships by canonical collection path (prevents one item from being mounted to multiple same-name duplicate keys).
+- Keep only one canonical key per path while still preserving intended target placement.
+
 ## 0.1.2
 - Fix collection path resolution to strongly prefer existing full paths and avoid duplicate same-name collection trees.
 - Add arXiv metadata enrichment (authors/title/date/abstract) by default for items with arXiv IDs/URLs.
