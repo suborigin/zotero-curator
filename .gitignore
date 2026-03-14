@@ -5,3 +5,5 @@ __pycache__/
 .env
 *.report.json
 .DS_Store
+
+*.egg-info/
