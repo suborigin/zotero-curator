@@ -70,6 +70,9 @@ python -m build
 python -m twine upload dist/*
 ```
 
+Trusted Publishing setup guide:
+- [`docs/PUBLISHING.md`](docs/PUBLISHING.md)
+
 ## Credentials
 
 ```bash
