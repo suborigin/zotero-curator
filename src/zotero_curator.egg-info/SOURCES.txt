@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+src/zotero_curator/__init__.py
+src/zotero_curator/cli.py
+src/zotero_curator.egg-info/PKG-INFO
+src/zotero_curator.egg-info/SOURCES.txt
+src/zotero_curator.egg-info/dependency_links.txt
+src/zotero_curator.egg-info/entry_points.txt
+src/zotero_curator.egg-info/requires.txt
+src/zotero_curator.egg-info/top_level.txt
+tests/test_core.py

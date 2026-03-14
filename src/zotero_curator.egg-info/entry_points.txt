@@ -1,0 +1,2 @@
+[console_scripts]
+zotero-curator = zotero_curator.cli:main

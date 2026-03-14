@@ -1,0 +1,10 @@
+global_tags:
+  - zotero-curated
+
+papers:
+  - title: "Self-Refine: Iterative Refinement with Self-Feedback"
+    item_type: preprint
+    arxiv_id: "2303.17651"
+    date: "2023"
+    target_collection: "Artificial Intelligence/Large Language Models/Context Engineering/Self-Refinement"
+    tags: ["self-refinement", "iterative-improvement"]
