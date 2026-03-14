@@ -69,3 +69,18 @@ def test_canonicalize_item_collections_dedupes_same_path() -> None:
 
     out = canonicalize_item_collections(["POST_OLD", "POST_NEW"], "POST_OLD", by_key)
     assert out == ["POST_OLD"]
+
+
+def test_resolve_collection_with_false_parent_from_api() -> None:
+    collections = [
+        {"data": {"key": "AI_ROOT", "name": "Artificial Intelligence", "parentCollection": False, "version": 10}},
+        {"data": {"key": "LLM", "name": "Large Language Models", "parentCollection": "AI_ROOT", "version": 11}},
+    ]
+    by_key, by_slot, _ = index_collections(collections)
+    chain, leaf = resolve_collection_path_existing(
+        path_segments=["Artificial Intelligence", "Large Language Models"],
+        by_key=by_key,
+        by_slot=by_slot,
+    )
+    assert chain == ["AI_ROOT", "LLM"]
+    assert leaf == "LLM"

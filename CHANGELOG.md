@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+- Fix root collection matching bug where Zotero API returns `parentCollection=false`; now normalized to `None` to prevent accidental duplicate-tree creation.
+- Add retry/backoff for transient network errors (`IncompleteRead`, `RemoteDisconnected`, reset/timeout, 5xx) to make long batch sync stable.
+- Add regression test for `parentCollection=false` path resolution.
+
 ## 0.1.3
 - Deduplicate existing item collection memberships by canonical collection path (prevents one item from being mounted to multiple same-name duplicate keys).
 - Keep only one canonical key per path while still preserving intended target placement.

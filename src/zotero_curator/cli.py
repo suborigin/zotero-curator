@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import hashlib
 import json
 import os
@@ -75,17 +76,26 @@ class ZoteroClient:
             req_headers.setdefault("Content-Type", "application/json")
 
         req = request.Request(url=url, data=body, method=method, headers=req_headers)
-        try:
-            with request.urlopen(req, timeout=120) as resp:
-                raw = resp.read()
-                resp_headers = {k: v for k, v in resp.headers.items()}
-                payload = json.loads(raw.decode("utf-8")) if (expect_json and raw) else (raw if not expect_json else None)
-                return resp.status, resp_headers, payload
-        except error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            raise ZoteroError(f"{method} {url} failed: HTTP {e.code} {err_body}") from e
-        except error.URLError as e:
-            raise ZoteroError(f"Network error calling {method} {url}: {e}") from e
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with request.urlopen(req, timeout=120) as resp:
+                    raw = resp.read()
+                    resp_headers = {k: v for k, v in resp.headers.items()}
+                    payload = json.loads(raw.decode("utf-8")) if (expect_json and raw) else (raw if not expect_json else None)
+                    return resp.status, resp_headers, payload
+            except error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                if e.code >= 500 and attempt < max_attempts:
+                    time.sleep(min(2 ** (attempt - 1), 8))
+                    continue
+                raise ZoteroError(f"{method} {url} failed: HTTP {e.code} {err_body}") from e
+            except (error.URLError, http.client.IncompleteRead, http.client.RemoteDisconnected, ConnectionResetError, TimeoutError) as e:
+                if attempt < max_attempts:
+                    time.sleep(min(2 ** (attempt - 1), 8))
+                    continue
+                raise ZoteroError(f"Network error calling {method} {url}: {e}") from e
+        raise ZoteroError(f"Unexpected retry loop exit for {method} {url}")
 
     def _paginate(self, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -333,7 +343,7 @@ def build_collection_cache(collections: list[dict[str, Any]]) -> dict[tuple[str 
         d = row.get("data", {})
         key = d.get("key")
         name = d.get("name")
-        parent = d.get("parentCollection")
+        parent = d.get("parentCollection") or None
         version = int(d.get("version") or 0)
         if not key or not name:
             continue
@@ -352,7 +362,7 @@ def index_collections(collections: list[dict[str, Any]]) -> tuple[dict[str, dict
         d = row.get("data", {})
         key = d.get("key")
         name = d.get("name")
-        parent = d.get("parentCollection")
+        parent = d.get("parentCollection") or None
         if not key or not name:
             continue
         by_key[key] = d
@@ -371,7 +381,7 @@ def collection_path_from_key(key: str, by_key: dict[str, dict[str, Any]]) -> str
         name = d.get("name")
         if name:
             parts.append(str(name))
-        cur = d.get("parentCollection")
+        cur = d.get("parentCollection") or None
     return "/".join(reversed(parts))
 
 
