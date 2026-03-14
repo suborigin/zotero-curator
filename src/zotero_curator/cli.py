@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -196,6 +197,12 @@ def parse_arxiv_id(raw: str | None) -> str | None:
     return None
 
 
+def strip_arxiv_version(arxiv_id: str | None) -> str | None:
+    if not arxiv_id:
+        return None
+    return re.sub(r"v\d+$", "", arxiv_id.strip())
+
+
 def normalize_title(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
@@ -228,9 +235,63 @@ def build_attachment_name(parent_data: dict[str, Any]) -> str:
     return fn[:176] + ".pdf" if len(fn) > 180 else fn
 
 
+def fetch_arxiv_metadata(arxiv_id: str) -> dict[str, Any]:
+    base_id = strip_arxiv_version(arxiv_id)
+    if not base_id:
+        raise ZoteroError(f"Invalid arXiv id for metadata fetch: {arxiv_id}")
+
+    url = f"http://export.arxiv.org/api/query?id_list={parse.quote(base_id)}"
+    req = request.Request(url, headers={"User-Agent": "zotero-curator/1.0"})
+    with request.urlopen(req, timeout=60) as resp:
+        xml_blob = resp.read()
+
+    root = ET.fromstring(xml_blob)
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    entry = root.find("a:entry", ns)
+    if entry is None:
+        raise ZoteroError(f"arXiv metadata not found for {base_id}")
+
+    title = " ".join((entry.findtext("a:title", default="", namespaces=ns) or "").split())
+    date = (entry.findtext("a:published", default="", namespaces=ns) or "")[:10]
+    abstract = " ".join((entry.findtext("a:summary", default="", namespaces=ns) or "").split())
+
+    creators: list[dict[str, str]] = []
+    for au in entry.findall("a:author", ns):
+        name = (au.findtext("a:name", default="", namespaces=ns) or "").strip()
+        if not name:
+            continue
+        parts = name.split()
+        if len(parts) >= 2:
+            creators.append({"creatorType": "author", "firstName": " ".join(parts[:-1]), "lastName": parts[-1]})
+        else:
+            creators.append({"creatorType": "author", "name": name})
+
+    return {"title": title, "date": date, "abstract": abstract, "creators": creators, "arxiv_id": base_id}
+
+
+def enrich_paper_from_arxiv(p: PlanPaper) -> PlanPaper:
+    arxiv_id = parse_arxiv_id(p.arxiv_id) or parse_arxiv_id(p.url)
+    if not arxiv_id:
+        return p
+
+    meta = fetch_arxiv_metadata(arxiv_id)
+    return PlanPaper(
+        title=meta["title"] or p.title,
+        target_collection=p.target_collection,
+        item_type=p.item_type,
+        date=meta["date"] or p.date,
+        doi=p.doi,
+        arxiv_id=meta["arxiv_id"],
+        url=f"https://arxiv.org/abs/{meta['arxiv_id']}",
+        creators=meta["creators"] or p.creators,
+        tags=p.tags,
+        abstract=meta["abstract"] or p.abstract,
+    )
+
+
 def paper_to_item_data(p: PlanPaper, collection_key: str, global_tags: list[str]) -> dict[str, Any]:
     url = p.url
-    arxiv_id = parse_arxiv_id(p.arxiv_id)
+    arxiv_id = strip_arxiv_version(parse_arxiv_id(p.arxiv_id))
     if not url and arxiv_id:
         url = f"https://arxiv.org/abs/{arxiv_id}"
     out: dict[str, Any] = {"itemType": p.item_type, "title": p.title, "collections": [collection_key], "creators": p.creators or []}
@@ -283,14 +344,80 @@ def build_collection_cache(collections: list[dict[str, Any]]) -> dict[tuple[str 
     return {k: v[1] for k, v in ranked.items()}
 
 
-def ensure_collection_path(client: ZoteroClient, cache: dict[tuple[str | None, str], str], path: str, dry_run: bool) -> str:
-    parent: str | None = None
-    for seg in [s.strip() for s in path.split("/") if s.strip()]:
+def index_collections(collections: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[tuple[str | None, str], list[str]], dict[str | None, list[str]]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    by_slot: dict[tuple[str | None, str], list[str]] = {}
+    children: dict[str | None, list[str]] = {}
+    for row in collections:
+        d = row.get("data", {})
+        key = d.get("key")
+        name = d.get("name")
+        parent = d.get("parentCollection")
+        if not key or not name:
+            continue
+        by_key[key] = d
+        by_slot.setdefault((parent, name), []).append(key)
+        children.setdefault(parent, []).append(key)
+    return by_key, by_slot, children
+
+
+def _rank_collection_candidates(keys: list[str], by_key: dict[str, dict[str, Any]]) -> list[str]:
+    def sort_key(k: str) -> tuple[int, int, str]:
+        d = by_key.get(k, {})
+        version = int(d.get("version") or 0)
+        parent = d.get("parentCollection")
+        has_parent = 1 if parent else 0
+        return (has_parent, version, k)
+
+    return sorted(keys, key=sort_key)
+
+
+def resolve_collection_path_existing(
+    *,
+    path_segments: list[str],
+    by_key: dict[str, dict[str, Any]],
+    by_slot: dict[tuple[str | None, str], list[str]],
+) -> tuple[list[str], str | None]:
+    if not path_segments:
+        return [], None
+
+    states: list[tuple[str | None, list[str], int]] = [(None, [], 0)]
+    for seg in path_segments:
+        next_states: list[tuple[str | None, list[str], int]] = []
+        for parent, matched, depth in states:
+            candidates = _rank_collection_candidates(by_slot.get((parent, seg), []), by_key)
+            if not candidates:
+                next_states.append((parent, matched, depth))
+                continue
+            for c in candidates:
+                next_states.append((c, matched + [c], depth + 1))
+        states = next_states
+
+    best = max(states, key=lambda s: (s[2], -int(by_key.get(s[0] or "", {}).get("version") or 0) if s[0] else 0)) if states else (None, [], 0)
+    return best[1], best[0]
+
+
+def ensure_collection_path(client: ZoteroClient, cache: dict[tuple[str | None, str], str], collections: list[dict[str, Any]], path: str, dry_run: bool) -> str:
+    segments = [s.strip() for s in path.split("/") if s.strip()]
+    if not segments:
+        raise ZoteroError(f"Invalid target_collection path: {path}")
+
+    by_key, by_slot, _ = index_collections(collections)
+    matched_chain, parent = resolve_collection_path_existing(path_segments=segments, by_key=by_key, by_slot=by_slot)
+    matched_count = len(matched_chain)
+    if matched_count == len(segments) and parent:
+        return parent
+
+    # Fallback to cache-based traversal for remaining segments; create only the missing tail.
+    # parent can be None (root) when no prefix exists.
+    for seg in segments[matched_count:]:
         slot = (parent, seg)
         key = cache.get(slot)
         if not key:
             key = f"DRYRUN_{seg.upper().replace(' ', '_')}" if dry_run else client.create_collection(seg, parent)
             cache[slot] = key
+            if not dry_run:
+                collections.append({"data": {"key": key, "name": seg, "parentCollection": parent, "version": 10**9}})
         parent = key
     if not parent:
         raise ZoteroError(f"Invalid target_collection path: {path}")
@@ -302,11 +429,12 @@ def find_existing_item(client: ZoteroClient, paper: PlanPaper) -> dict[str, Any]
         for row in client.search_items(paper.doi, qmode="everything"):
             if (row.get("data", {}).get("DOI") or "").strip().lower() == paper.doi.strip().lower():
                 return row
-    arxiv_id = parse_arxiv_id(paper.arxiv_id)
+    arxiv_id = strip_arxiv_version(parse_arxiv_id(paper.arxiv_id))
     if arxiv_id:
         for row in client.search_items(arxiv_id, qmode="everything"):
             d = row.get("data", {})
-            if d.get("archive") == "arXiv" and (d.get("archiveLocation") or "").replace(".pdf", "") == arxiv_id:
+            archive_loc = strip_arxiv_version(parse_arxiv_id(d.get("archiveLocation")) or d.get("archiveLocation"))
+            if d.get("archive") == "arXiv" and archive_loc == arxiv_id:
                 return row
             if arxiv_id in (d.get("url") or ""):
                 return row
@@ -326,7 +454,11 @@ def pick_existing_pdf_attachment(children: list[dict[str, Any]]) -> dict[str, An
 
 
 def pdf_url_from_paper(paper: PlanPaper, parent_data: dict[str, Any]) -> str | None:
-    arxiv = parse_arxiv_id(paper.arxiv_id) or parse_arxiv_id(parent_data.get("archiveLocation")) or parse_arxiv_id(parent_data.get("url"))
+    arxiv = (
+        strip_arxiv_version(parse_arxiv_id(paper.arxiv_id))
+        or strip_arxiv_version(parse_arxiv_id(parent_data.get("archiveLocation")))
+        or strip_arxiv_version(parse_arxiv_id(parent_data.get("url")))
+    )
     return f"https://arxiv.org/pdf/{arxiv}.pdf" if arxiv else None
 
 
@@ -353,7 +485,12 @@ def ensure_local_storage_copy(data_dir: Path, attachment_key: str, source_pdf: P
 
 
 def upload_imported_file(client: ZoteroClient, attachment_key: str, local_pdf: Path) -> str:
-    auth = client.authorize_upload(attachment_key, local_pdf)
+    try:
+        auth = client.authorize_upload(attachment_key, local_pdf)
+    except ZoteroError as exc:
+        if "HTTP 412" in str(exc):
+            return "exists"
+        raise
     if auth.get("exists") == 1:
         return "exists"
     raw = local_pdf.read_bytes()
@@ -472,7 +609,14 @@ def run_sync(args: argparse.Namespace) -> int:
     for row in plan["papers"]:
         try:
             paper = resolve_paper(row)
-            target_key = ensure_collection_path(client, cache, paper.target_collection, args.dry_run)
+            if args.enrich_arxiv_metadata:
+                try:
+                    paper = enrich_paper_from_arxiv(paper)
+                except Exception as exc:  # pylint: disable=broad-except
+                    report["errors"].append({"paper": row.get("title"), "error": f"metadata_enrich_failed: {exc}"})
+                    continue
+
+            target_key = ensure_collection_path(client, cache, collections, paper.target_collection, args.dry_run)
             if target_key.startswith("DRYRUN_"):
                 report["created_collections"].append(paper.target_collection)
 
@@ -489,11 +633,29 @@ def run_sync(args: argparse.Namespace) -> int:
                 item_key = parent_data["key"]
                 current = list(parent_data.get("collections", []))
                 desired = sorted(set(current + [target_key]))
+                patch_data: dict[str, Any] = {}
                 if desired != sorted(current):
+                    patch_data["collections"] = desired
+                # Backfill key metadata when existing items are sparse or imported as URL shells.
+                if args.enrich_arxiv_metadata:
+                    if not (parent_data.get("creators") or []):
+                        patch_data["creators"] = paper.creators or []
+                    if not (parent_data.get("date") or "") and paper.date:
+                        patch_data["date"] = paper.date
+                    if paper.arxiv_id:
+                        patch_data["archive"] = "arXiv"
+                        patch_data["archiveLocation"] = strip_arxiv_version(parse_arxiv_id(paper.arxiv_id))
+                        patch_data["url"] = f"https://arxiv.org/abs/{strip_arxiv_version(parse_arxiv_id(paper.arxiv_id))}"
+                    if not (parent_data.get("abstractNote") or "") and paper.abstract:
+                        patch_data["abstractNote"] = paper.abstract
+                    if normalize_title(parent_data.get("title", "")) != normalize_title(paper.title):
+                        patch_data["title"] = paper.title
+
+                if patch_data:
                     if not args.dry_run:
-                        client.patch_item(item_key, int(parent_data.get("version") or 0), {"collections": desired})
+                        client.patch_item(item_key, int(parent_data.get("version") or 0), patch_data)
                         parent_data = client.get_item(item_key)["data"]
-                    report["items_updated"].append({"title": parent_data.get("title"), "key": item_key, "collections": desired})
+                    report["items_updated"].append({"title": parent_data.get("title"), "key": item_key, "collections": parent_data.get("collections", [])})
                 else:
                     report["skipped"].append({"title": paper.title, "reason": "already_exists_in_collection", "key": item_key})
 
@@ -561,6 +723,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--prune-pdf-attachments",
         action="store_true",
         help="Delete non-canonical PDF attachments (linked_url/imported_url/linked_file)",
+    )
+    sync.add_argument(
+        "--enrich-arxiv-metadata",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Auto-fill title/date/authors/abstract from arXiv when arxiv_id is available (default: enabled)",
     )
 
     return parser
