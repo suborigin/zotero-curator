@@ -361,6 +361,20 @@ def index_collections(collections: list[dict[str, Any]]) -> tuple[dict[str, dict
     return by_key, by_slot, children
 
 
+def collection_path_from_key(key: str, by_key: dict[str, dict[str, Any]]) -> str:
+    parts: list[str] = []
+    cur: str | None = key
+    seen: set[str] = set()
+    while cur and cur in by_key and cur not in seen:
+        seen.add(cur)
+        d = by_key[cur]
+        name = d.get("name")
+        if name:
+            parts.append(str(name))
+        cur = d.get("parentCollection")
+    return "/".join(reversed(parts))
+
+
 def _rank_collection_candidates(keys: list[str], by_key: dict[str, dict[str, Any]]) -> list[str]:
     def sort_key(k: str) -> tuple[int, int, str]:
         d = by_key.get(k, {})
@@ -395,6 +409,28 @@ def resolve_collection_path_existing(
 
     best = max(states, key=lambda s: (s[2], -int(by_key.get(s[0] or "", {}).get("version") or 0) if s[0] else 0)) if states else (None, [], 0)
     return best[1], best[0]
+
+
+def canonicalize_item_collections(current: list[str], preferred_key: str | None, by_key: dict[str, dict[str, Any]]) -> list[str]:
+    chosen_by_path: dict[str, str] = {}
+    for key in current:
+        if key not in by_key:
+            chosen_by_path[f"__missing__/{key}"] = key
+            continue
+        path = collection_path_from_key(key, by_key)
+        prev = chosen_by_path.get(path)
+        if prev is None:
+            chosen_by_path[path] = key
+            continue
+        if preferred_key and (key == preferred_key or prev == preferred_key):
+            chosen_by_path[path] = preferred_key
+            continue
+        winner = _rank_collection_candidates([prev, key], by_key)[0]
+        chosen_by_path[path] = winner
+    out = list(chosen_by_path.values())
+    if preferred_key and preferred_key not in out:
+        out.append(preferred_key)
+    return sorted(set(out))
 
 
 def ensure_collection_path(client: ZoteroClient, cache: dict[tuple[str | None, str], str], collections: list[dict[str, Any]], path: str, dry_run: bool) -> str:
@@ -631,8 +667,9 @@ def run_sync(args: argparse.Namespace) -> int:
             else:
                 parent_data = existing.get("data", {})
                 item_key = parent_data["key"]
+                by_key, _, _ = index_collections(collections)
                 current = list(parent_data.get("collections", []))
-                desired = sorted(set(current + [target_key]))
+                desired = canonicalize_item_collections(current + [target_key], target_key, by_key)
                 patch_data: dict[str, Any] = {}
                 if desired != sorted(current):
                     patch_data["collections"] = desired

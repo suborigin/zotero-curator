@@ -1,5 +1,7 @@
 from zotero_curator.cli import (
     build_attachment_name,
+    canonicalize_item_collections,
+    collection_path_from_key,
     index_collections,
     parse_arxiv_id,
     resolve_collection_path_existing,
@@ -50,3 +52,20 @@ def test_resolve_collection_prefers_existing_full_path() -> None:
     )
     assert leaf == "SELF_A"
     assert chain == ["ROOT_A", "LLM_A", "CTX_A", "SELF_A"]
+
+
+def test_canonicalize_item_collections_dedupes_same_path() -> None:
+    collections = [
+        {"data": {"key": "ROOT_OLD", "name": "Artificial Intelligence", "parentCollection": None, "version": 10}},
+        {"data": {"key": "ROOT_NEW", "name": "Artificial Intelligence", "parentCollection": None, "version": 200}},
+        {"data": {"key": "LLM_OLD", "name": "Large Language Models", "parentCollection": "ROOT_OLD", "version": 10}},
+        {"data": {"key": "LLM_NEW", "name": "Large Language Models", "parentCollection": "ROOT_NEW", "version": 200}},
+        {"data": {"key": "POST_OLD", "name": "Post Training", "parentCollection": "LLM_OLD", "version": 10}},
+        {"data": {"key": "POST_NEW", "name": "Post Training", "parentCollection": "LLM_NEW", "version": 200}},
+    ]
+    by_key, _, _ = index_collections(collections)
+    assert collection_path_from_key("POST_OLD", by_key) == "Artificial Intelligence/Large Language Models/Post Training"
+    assert collection_path_from_key("POST_NEW", by_key) == "Artificial Intelligence/Large Language Models/Post Training"
+
+    out = canonicalize_item_collections(["POST_OLD", "POST_NEW"], "POST_OLD", by_key)
+    assert out == ["POST_OLD"]
