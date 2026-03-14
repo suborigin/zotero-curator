@@ -20,6 +20,27 @@ Most ad-hoc scripts can add items, but fail on long-term reliability:
 
 `zotero-curator` solves this with an opinionated, sync-safe pipeline.
 
+## Best-fit scenarios
+
+- You run Zotero as your long-term research knowledge base and want clean, consistent entries.
+- You add many papers weekly and don't want to manually classify/rename/download attachments.
+- You need sync-safe attachments across devices (desktop/laptop/cloud sync), not temporary links.
+- You use coding agents (Codex/Claude Code) and want deterministic, repeatable ingestion.
+
+## What it does (in production)
+
+- Creates missing collection/sub-collection paths from a plan file.
+- Finds existing records by DOI/arXiv/title and avoids duplicate top-level items.
+- Downloads arXiv PDFs and uploads with official Zotero `imported_file` flow.
+- Keeps both attachment `filename` and visible attachment `title` standardized.
+- Optionally removes temporary PDF attachment types after canonical attachment is ready.
+
+## What it does not do (yet)
+
+- It does not reliably fetch paywalled publisher PDFs without an accessible source.
+- It does not auto-read your mind for taxonomy; collection paths still come from your plan.
+- It does not replace Zotero sync settings/account configuration.
+
 ## Features
 
 - Auto-create and enforce collection/sub-collection paths.
@@ -33,18 +54,12 @@ Most ad-hoc scripts can add items, but fail on long-term reliability:
 ## Architecture
 
 ```mermaid
-flowchart TD
-  A["🧠 Research Plan (YAML/JSON)"] --> B["🔎 Detect Existing Items (DOI/arXiv/title)"]
-  B --> C["🗂️ Build Collection Path"]
-  C --> D["📄 Resolve PDF Source (arXiv)"]
-  D --> E["☁️ Official Zotero Upload (imported_file)"]
-  E --> F["💾 Local Storage Mirror (storage/&lt;itemKey&gt;)"]
-  F --> G["🏷️ Auto Rename (Author - Year - Title)"]
-  G --> H{"🧹 Prune Temporary Attachments?"}
-  H -->|Yes| I["🧼 Remove linked_url/imported_url/linked_file"]
-  H -->|No| J["📦 Keep Existing Extras"]
-  I --> K["✅ Sync-safe Zotero Item"]
-  J --> K
+flowchart LR
+  A["Plan"] --> B["Dedup Upsert"]
+  B --> C["Classify"]
+  C --> D["Upload PDF (imported_file)"]
+  D --> E["Rename + Optional Prune"]
+  E --> F["Sync-safe Item"]
 ```
 
 ## Install
