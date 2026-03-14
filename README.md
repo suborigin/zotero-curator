@@ -1,3 +1,5 @@
+![zotero-curator](https://capsule-render.vercel.app/api?type=waving&height=220&color=0:0f172a,100:1e293b&text=zotero-curator&fontColor=e2e8f0&fontSize=54&desc=Sync-safe%20ingestion,%20classification,%20and%20attachments%20for%20Zotero&descAlignY=66)
+
 # zotero-curator
 
 [![CI](https://github.com/suborigin/zotero-curator/actions/workflows/ci.yml/badge.svg)](https://github.com/suborigin/zotero-curator/actions/workflows/ci.yml)
@@ -121,6 +123,16 @@ Key options:
 - Designed for Zotero Web API v3 and local Zotero desktop data model.
 - Best results when PDFs are available on arXiv.
 - Non-arXiv metadata/classification still works; attachment may be skipped.
+
+## Roadmap
+
+- [x] Sync-safe `imported_file` attachment flow (official Web API upload)
+- [x] Collection/sub-collection auto-classification
+- [x] Attachment filename/title normalization
+- [x] Optional temporary attachment pruning
+- [ ] PyPI trusted publishing (OIDC)
+- [ ] Non-arXiv resolver plugins (publisher pages / open-access mirrors)
+- [ ] Integration test harness with a disposable Zotero sandbox library
 
 ## Security
 
