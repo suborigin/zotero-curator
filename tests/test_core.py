@@ -1,7 +1,12 @@
+from pathlib import Path
+
+import zotero_curator.cli as cli
+
 from zotero_curator.cli import (
     build_attachment_name,
     canonicalize_item_collections,
     collection_path_from_key,
+    ensure_attachment,
     index_collections,
     parse_arxiv_id,
     resolve_collection_path_existing,
@@ -26,6 +31,73 @@ def test_build_attachment_name() -> None:
     out = build_attachment_name(parent)
     assert out.startswith("Madaan - 2023 - Self-Refine")
     assert out.endswith(".pdf")
+
+
+def test_ensure_attachment_renames_existing_imported_pdf_title_and_filename(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.patched: list[tuple[str, int, dict[str, str]]] = []
+
+        def get_item_children(self, key: str) -> list[dict[str, dict[str, object]]]:
+            assert key == "PARENT1"
+            return [
+                {
+                    "data": {
+                        "key": "ATT1",
+                        "version": 7,
+                        "itemType": "attachment",
+                        "linkMode": "imported_file",
+                        "contentType": "application/pdf",
+                        "filename": "old.pdf",
+                        "title": "PDF",
+                    }
+                }
+            ]
+
+        def patch_item(self, key: str, version: int, data: dict[str, str]) -> None:
+            self.patched.append((key, version, data))
+
+    client = FakeClient()
+    paper = type("Paper", (), {"arxiv_id": "2603.18073"})()
+    parent_data = {
+        "title": "Continually self-improving AI",
+        "date": "2026-03-18",
+        "creators": [{"lastName": "Yang", "firstName": "Zitong"}],
+    }
+
+    local_pdf = tmp_path / "cache" / "dummy.pdf"
+    local_pdf.parent.mkdir(parents=True, exist_ok=True)
+    local_pdf.write_bytes(b"%PDF-1.4\n" + b"0" * 20000)
+
+    monkeypatch.setattr(cli, "ensure_pdf_download", lambda url, cache_dir, filename: local_pdf)
+    monkeypatch.setattr(cli, "upload_imported_file", lambda client, attachment_key, local_pdf: "exists")
+    monkeypatch.setattr(cli, "ensure_local_storage_copy", lambda data_dir, attachment_key, source_pdf: None)
+
+    out = ensure_attachment(
+        client,
+        paper,
+        "PARENT1",
+        parent_data,
+        data_dir=tmp_path / "zotero",
+        cache_dir=tmp_path / "cache",
+        dry_run=False,
+        prune=False,
+    )
+
+    assert out is not None
+    assert out["attachment"] == "ATT1"
+    assert client.patched == [
+        (
+            "ATT1",
+            7,
+            {
+                "filename": "Yang - 2026 - Continually self-improving AI.pdf",
+                "title": "Yang - 2026 - Continually self-improving AI",
+            },
+        )
+    ]
 
 
 def test_strip_arxiv_version() -> None:
