@@ -12,8 +12,11 @@ from zotero_curator.cli import (
     clear_env_exports,
     ensure_attachment,
     ensure_collection_path,
+    extract_papers_from_text,
     index_collections,
+    load_plan,
     parse_arxiv_id,
+    plan_from_text_payload,
     prompt_for_oauth_client_credentials,
     render_env_exports,
     resolve_sync_credentials,
@@ -201,6 +204,48 @@ def test_ensure_collection_path_refreshes_before_creating_duplicate() -> None:
 
     assert key == "SELF"
     assert client.created == []
+
+
+def test_extract_papers_from_text_builds_rows_from_article_body() -> None:
+    text = """
+EvolveR：从轨迹到原则的闭环
+论文链接：https://arxiv.org/abs/2510.16079
+
+CASCADE：技能库的科学研究版本
+论文链接：https://arxiv.org/abs/2512.23880
+"""
+    out = extract_papers_from_text(text, target_collection="AI Agents/self evolving", tags=["self-evolving"])
+
+    assert len(out) == 2
+    assert out[0]["title"] == "EvolveR"
+    assert out[0]["arxiv_id"] == "2510.16079"
+    assert out[0]["target_collection"] == "AI Agents/self evolving"
+    assert out[0]["tags"] == ["self-evolving"]
+    assert out[1]["title"] == "CASCADE"
+    assert out[1]["arxiv_id"] == "2512.23880"
+
+
+def test_plan_from_text_payload_requires_matches() -> None:
+    try:
+        plan_from_text_payload("No papers here", target_collection="AI Agents/self evolving")
+    except cli.ZoteroError as exc:
+        assert "No papers" in str(exc)
+    else:
+        raise AssertionError("Expected ZoteroError when no papers are found")
+
+
+def test_dumped_plan_can_be_loaded(tmp_path: Path) -> None:
+    out = tmp_path / "plan.yaml"
+    payload = plan_from_text_payload(
+        "EvolveR：从轨迹到原则的闭环\n论文链接：https://arxiv.org/abs/2510.16079\n",
+        target_collection="AI Agents/self evolving",
+        tags=["self-evolving"],
+    )
+    cli.dump_plan(out, payload)
+    loaded = load_plan(out)
+
+    assert loaded["papers"][0]["title"] == "EvolveR"
+    assert loaded["papers"][0]["arxiv_id"] == "2510.16079"
 
 
 def test_build_oauth_authorize_url_includes_requested_permissions() -> None:

@@ -117,6 +117,16 @@ copy the client key and client secret without manually hunting for that screen.
 If you are troubleshooting copy/paste issues, add `--oauth-show-client-secret` to
 echo the secret in plain text while you type it.
 
+Generate a plan file directly from article text that contains paper headings and arXiv links:
+
+```bash
+zotero-curator plan from-text \
+  --input article.txt \
+  --output examples/plan.yaml \
+  --target-collection "AI Agents/self evolving" \
+  --tag self-evolving
+```
+
 Print temporary credentials for the current shell:
 
 ```bash

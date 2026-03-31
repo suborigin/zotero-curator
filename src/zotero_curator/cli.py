@@ -218,6 +218,18 @@ def load_plan(path: Path) -> dict[str, Any]:
     return payload
 
 
+def dump_plan(path: Path, payload: dict[str, Any]) -> None:
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        try:
+            import yaml  # type: ignore
+        except ImportError as exc:
+            raise ZoteroError("YAML output requires PyYAML. Install with: pip install pyyaml") from exc
+        text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    else:
+        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    path.write_text(text, encoding="utf-8")
+
+
 def parse_arxiv_id(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -242,6 +254,98 @@ def strip_arxiv_version(arxiv_id: str | None) -> str | None:
 
 def normalize_title(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def normalize_heading_label(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def extract_papers_from_text(
+    text: str,
+    *,
+    target_collection: str,
+    tags: list[str] | None = None,
+    default_item_type: str = "preprint",
+) -> list[dict[str, Any]]:
+    labels_to_skip = {
+        "论文链接",
+        "发表时间",
+        "机构",
+        "图片",
+        "application name",
+        "application description",
+        "application website",
+        "application type",
+        "callback url",
+    }
+    heading_re = re.compile(r"^([A-Za-z0-9][A-Za-z0-9 .+\-_/()]{1,120})[:：](?:\s*(.*))?$")
+
+    papers: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = set()
+    current_title: str | None = None
+
+    def add_paper(*, title: str | None, arxiv_id: str | None = None, url: str | None = None) -> None:
+        clean_title = normalize_heading_label(title or "")
+        if not clean_title:
+            return
+        base_arxiv = strip_arxiv_version(parse_arxiv_id(arxiv_id or url))
+        key = (normalize_title(clean_title), base_arxiv)
+        if key in seen:
+            return
+        seen.add(key)
+        row: dict[str, Any] = {
+            "title": clean_title,
+            "target_collection": target_collection,
+            "item_type": default_item_type,
+        }
+        if base_arxiv:
+            row["arxiv_id"] = base_arxiv
+            row["url"] = f"https://arxiv.org/abs/{base_arxiv}"
+        elif url:
+            row["url"] = url.strip()
+        if tags:
+            row["tags"] = sorted(set(tags))
+        papers.append(row)
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        match = heading_re.match(line)
+        if match:
+            heading = normalize_heading_label(match.group(1))
+            if heading.lower() not in labels_to_skip and not parse_arxiv_id(heading):
+                current_title = heading
+
+        arxiv_id = parse_arxiv_id(line)
+        if arxiv_id:
+            add_paper(title=current_title, arxiv_id=arxiv_id)
+            continue
+
+        if "arxiv.org/abs/" in line or "arxiv.org/pdf/" in line:
+            m = re.search(r"https?://arxiv\.org/(?:abs|pdf)/[^\s)]+", line)
+            if m:
+                add_paper(title=current_title, url=m.group(0))
+
+    return papers
+
+
+def plan_from_text_payload(
+    text: str,
+    *,
+    target_collection: str,
+    tags: list[str] | None = None,
+    default_item_type: str = "preprint",
+) -> dict[str, Any]:
+    papers = extract_papers_from_text(
+        text,
+        target_collection=target_collection,
+        tags=tags,
+        default_item_type=default_item_type,
+    )
+    if not papers:
+        raise ZoteroError("No papers with recognizable arXiv links were found in the supplied text.")
+    return {"papers": papers}
 
 
 def clean_filename_part(s: str) -> str:
@@ -1162,6 +1266,29 @@ def run_auth_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_plan_from_text(args: argparse.Namespace) -> int:
+    if args.input:
+        text = Path(args.input).read_text(encoding="utf-8")
+    elif args.text:
+        text = args.text
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        raise ZoteroError("Provide --input, --text, or pipe article text via stdin.")
+
+    payload = plan_from_text_payload(
+        text,
+        target_collection=args.target_collection,
+        tags=args.tag,
+        default_item_type=args.item_type,
+    )
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    dump_plan(output_path, payload)
+    print(f"Wrote {len(payload['papers'])} papers to {output_path}")
+    return 0
+
+
 def add_oauth_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--oauth-client-key", help="Zotero OAuth client key (or ZOTERO_OAUTH_CLIENT_KEY)")
     parser.add_argument("--oauth-client-secret", help="Zotero OAuth client secret (or ZOTERO_OAUTH_CLIENT_SECRET)")
@@ -1221,6 +1348,17 @@ def add_oauth_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Automate Zotero curation workflows.")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    plan = sub.add_parser("plan", help="Generate plan files from text sources")
+    plan_sub = plan.add_subparsers(dest="plan_command", required=True)
+
+    plan_from_text = plan_sub.add_parser("from-text", help="Extract arXiv-linked papers from article text into a plan file")
+    plan_from_text.add_argument("--input", help="Path to a UTF-8 text/markdown file")
+    plan_from_text.add_argument("--text", help="Inline article text")
+    plan_from_text.add_argument("--output", required=True, help="Output plan path (.yaml/.yml/.json)")
+    plan_from_text.add_argument("--target-collection", required=True, help="Target Zotero collection path for extracted papers")
+    plan_from_text.add_argument("--item-type", default="preprint", help="Zotero itemType for generated papers (default: preprint)")
+    plan_from_text.add_argument("--tag", action="append", default=[], help="Extra tag to attach to every extracted paper")
 
     sync = sub.add_parser("sync", help="Sync papers from plan into Zotero")
     sync.add_argument("--plan", required=True, help="Path to plan file (.yaml/.yml/.json)")
@@ -1302,6 +1440,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.command == "plan":
+        if args.plan_command == "from-text":
+            return run_plan_from_text(args)
     if args.command == "sync":
         return run_sync(args)
     if args.command == "auth":
