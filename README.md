@@ -108,6 +108,10 @@ export ZOTERO_OAUTH_CLIENT_KEY='YOUR_CLIENT_KEY'
 export ZOTERO_OAUTH_CLIENT_SECRET='YOUR_CLIENT_SECRET'
 ```
 
+If those env vars are not set, `zotero-curator` will prompt for the client key and
+client secret interactively in the current terminal before opening the browser
+authorization page.
+
 Print temporary credentials for the current shell:
 
 ```bash

@@ -13,6 +13,7 @@ from zotero_curator.cli import (
     ensure_attachment,
     index_collections,
     parse_arxiv_id,
+    prompt_for_oauth_client_credentials,
     render_env_exports,
     resolve_sync_credentials,
     resolve_collection_path_existing,
@@ -229,3 +230,14 @@ def test_resolve_sync_credentials_uses_oauth_when_requested(monkeypatch) -> None
     assert api_key == "key-11"
     assert oauth_access == access
     assert any("ZOTERO_API_KEY" in line for line in printed)
+
+
+def test_prompt_for_oauth_client_credentials_reads_missing_values(monkeypatch) -> None:
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(builtins, "input", lambda prompt="": "client-key")
+    monkeypatch.setattr(cli, "getpass", lambda prompt="": "client-secret")
+
+    client_key, client_secret = prompt_for_oauth_client_credentials(None, None)
+
+    assert client_key == "client-key"
+    assert client_secret == "client-secret"

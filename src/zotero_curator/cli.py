@@ -15,6 +15,7 @@ import time
 import webbrowser
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from getpass import getpass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -707,6 +708,28 @@ def _parse_form_encoded(payload: bytes) -> dict[str, str]:
     return {k: values[0] for k, values in data.items()}
 
 
+def prompt_for_oauth_client_credentials(
+    client_key: str | None,
+    client_secret: str | None,
+) -> tuple[str, str]:
+    if client_key and client_secret:
+        return client_key, client_secret
+    if not sys.stdin.isatty():
+        raise ZoteroError(
+            "Missing OAuth client credentials. Set ZOTERO_OAUTH_CLIENT_KEY and "
+            "ZOTERO_OAUTH_CLIENT_SECRET, pass them as flags, or run from an interactive terminal "
+            "so zotero-curator can prompt for them."
+        )
+
+    if not client_key:
+        client_key = input("Enter Zotero OAuth client key: ").strip()
+    if not client_secret:
+        client_secret = getpass("Enter Zotero OAuth client secret: ").strip()
+    if not client_key or not client_secret:
+        raise ZoteroError("OAuth client key and secret are required.")
+    return client_key, client_secret
+
+
 def _signed_oauth_post(
     url: str,
     *,
@@ -805,13 +828,10 @@ def _wait_for_oauth_callback(host: str, port: int, timeout: int) -> dict[str, st
 
 
 def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
-    consumer_key = args.oauth_client_key or os.getenv("ZOTERO_OAUTH_CLIENT_KEY")
-    consumer_secret = args.oauth_client_secret or os.getenv("ZOTERO_OAUTH_CLIENT_SECRET")
-    if not consumer_key or not consumer_secret:
-        raise ZoteroError(
-            "Missing OAuth client credentials. Set ZOTERO_OAUTH_CLIENT_KEY and "
-            "ZOTERO_OAUTH_CLIENT_SECRET, or pass --oauth-client-key/--oauth-client-secret."
-        )
+    consumer_key, consumer_secret = prompt_for_oauth_client_credentials(
+        args.oauth_client_key or os.getenv("ZOTERO_OAUTH_CLIENT_KEY"),
+        args.oauth_client_secret or os.getenv("ZOTERO_OAUTH_CLIENT_SECRET"),
+    )
 
     callback_url = f"http://{args.oauth_callback_host}:{args.oauth_callback_port}/oauth/callback"
     request_token_info = _signed_oauth_post(
