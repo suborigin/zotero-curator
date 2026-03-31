@@ -445,7 +445,16 @@ def resolve_collection_path_existing(
     return best[1], best[0]
 
 
-def canonicalize_item_collections(current: list[str], preferred_key: str | None, by_key: dict[str, dict[str, Any]]) -> list[str]:
+def canonicalize_item_collections(
+    current: list[str],
+    preferred_key: str | None,
+    by_key: dict[str, dict[str, Any]],
+    *,
+    exclusive_target: bool = False,
+) -> list[str]:
+    if exclusive_target and preferred_key:
+        return [preferred_key]
+
     chosen_by_path: dict[str, str] = {}
     for key in current:
         if key not in by_key:
@@ -989,7 +998,12 @@ def run_sync_with_client(args: argparse.Namespace, client: ZoteroClient) -> int:
                 item_key = parent_data["key"]
                 by_key, _, _ = index_collections(collections)
                 current = list(parent_data.get("collections", []))
-                desired = canonicalize_item_collections(current + [target_key], target_key, by_key)
+                desired = canonicalize_item_collections(
+                    current + [target_key],
+                    target_key,
+                    by_key,
+                    exclusive_target=args.exclusive_target_collection,
+                )
                 patch_data: dict[str, Any] = {}
                 if desired != sorted(current):
                     patch_data["collections"] = desired
@@ -1177,6 +1191,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--print-env-after-oauth",
         action="store_true",
         help="Print shell exports for the OAuth-derived credentials before running sync",
+    )
+    sync.add_argument(
+        "--exclusive-target-collection",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Move existing items into the target collection instead of keeping old collection memberships (default: enabled)",
     )
     add_oauth_arguments(sync)
 

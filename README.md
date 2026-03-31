@@ -124,6 +124,10 @@ zotero-curator sync \
   --delete-api-key-after
 ```
 
+When an item already exists, the default behavior is to move it into the requested
+target collection instead of leaving it attached to older collections. If you want
+to preserve the old multi-collection behavior, pass `--no-exclusive-target-collection`.
+
 ## Quick start
 
 ```bash
@@ -166,6 +170,7 @@ Key options:
 - `--dry-run`: no writes
 - `--oauth-authorize`: launch Zotero OAuth key exchange if API credentials are not already set
 - `--delete-api-key-after`: revoke the temporary OAuth-derived key after sync
+- `--exclusive-target-collection`: move existing items into the requested collection instead of keeping prior collection memberships
 
 ## Compatibility notes
 

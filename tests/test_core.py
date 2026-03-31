@@ -164,6 +164,16 @@ def test_resolve_collection_with_false_parent_from_api() -> None:
     assert leaf == "LLM"
 
 
+def test_canonicalize_item_collections_can_move_item_exclusively() -> None:
+    collections = [
+        {"data": {"key": "OLD", "name": "Old Bucket", "parentCollection": None, "version": 1}},
+        {"data": {"key": "NEW", "name": "New Bucket", "parentCollection": None, "version": 2}},
+    ]
+    by_key, _, _ = index_collections(collections)
+    out = canonicalize_item_collections(["OLD", "NEW"], "NEW", by_key, exclusive_target=True)
+    assert out == ["NEW"]
+
+
 def test_build_oauth_authorize_url_includes_requested_permissions() -> None:
     url = build_oauth_authorize_url(
         "temp-token",
