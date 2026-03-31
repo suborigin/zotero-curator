@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from getpass import getpass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from requests_oauthlib import OAuth1Session
 from typing import Any
 from urllib import error, parse, request
 
@@ -845,12 +846,16 @@ def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
     )
 
     callback_url = f"http://{args.oauth_callback_host}:{args.oauth_callback_port}/oauth/callback"
-    request_token_info = _signed_oauth_post(
-        OAUTH_REQUEST_URL,
-        consumer_key=consumer_key,
-        consumer_secret=consumer_secret,
-        callback_url=callback_url,
-    )
+    try:
+        request_session = OAuth1Session(
+            consumer_key,
+            client_secret=consumer_secret,
+            callback_uri=callback_url,
+        )
+        request_token_info = request_session.fetch_request_token(OAUTH_REQUEST_URL)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise ZoteroError(f"OAuth request token exchange failed: {exc}") from exc
+
     request_token = request_token_info.get("oauth_token")
     request_token_secret = request_token_info.get("oauth_token_secret")
     if not request_token or not request_token_secret:
@@ -879,14 +884,18 @@ def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
     if not verifier:
         raise ZoteroError("OAuth callback did not include oauth_verifier.")
 
-    access_info = _signed_oauth_post(
-        OAUTH_ACCESS_URL,
-        consumer_key=consumer_key,
-        consumer_secret=consumer_secret,
-        token=request_token,
-        token_secret=request_token_secret,
-        verifier=verifier,
-    )
+    try:
+        access_session = OAuth1Session(
+            consumer_key,
+            client_secret=consumer_secret,
+            resource_owner_key=request_token,
+            resource_owner_secret=request_token_secret,
+            verifier=verifier,
+        )
+        access_info = access_session.fetch_access_token(OAUTH_ACCESS_URL)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise ZoteroError(f"OAuth access token exchange failed: {exc}") from exc
+
     api_key = access_info.get("oauth_token_secret")
     user_id = access_info.get("userID")
     if not api_key or not user_id:
