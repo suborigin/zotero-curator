@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://global/skin/global.css" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero-curator/content/dialog.css" type="text/css"?>
+<!DOCTYPE window>
+<window
+  id="zotero-curator-window"
+  title="Zotero Curator Import"
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  width="900"
+  height="760"
+  onload="ZoteroCuratorDialog.init();"
+>
+  <html:div class="app-shell">
+    <html:div class="hero">
+      <html:h1>Zotero Curator</html:h1>
+      <html:p>Paste article text, choose a target collection, and launch your local curator workflow without leaving Zotero.</html:p>
+    </html:div>
+
+    <html:div class="grid">
+      <html:section class="card">
+        <html:h2>Import Source</html:h2>
+        <html:label for="articleText">Article Text</html:label>
+        <html:textarea id="articleText" rows="18" placeholder="Paste the article body here"></html:textarea>
+
+        <html:div class="row">
+          <html:div class="field">
+            <html:label for="targetCollection">Target Collection</html:label>
+            <html:input id="targetCollection" type="text" placeholder="AI Agents/self evolving" />
+          </html:div>
+          <html:div class="field">
+            <html:label for="tags">Tags</html:label>
+            <html:input id="tags" type="text" placeholder="self-evolving, agent" />
+          </html:div>
+        </html:div>
+      </html:section>
+
+      <html:section class="card">
+        <html:h2>Local Curator</html:h2>
+        <html:div class="field">
+          <html:label for="pythonPath">Python Executable</html:label>
+          <html:input id="pythonPath" type="text" placeholder="C:\Python313\python.exe" />
+        </html:div>
+        <html:div class="field">
+          <html:label for="repoRoot">Curator Repo Root</html:label>
+          <html:input id="repoRoot" type="text" placeholder="C:\Users\Kenny\Documents\Projects\zotero-curator-git" />
+        </html:div>
+      </html:section>
+
+      <html:section class="card">
+        <html:h2>OAuth App</html:h2>
+        <html:p class="hint">These are your Zotero OAuth application credentials, not your long-lived personal API key.</html:p>
+        <html:div class="field">
+          <html:label for="clientKey">Client Key</html:label>
+          <html:input id="clientKey" type="text" />
+        </html:div>
+        <html:div class="field">
+          <html:label for="clientSecret">Client Secret</html:label>
+          <html:input id="clientSecret" type="text" />
+        </html:div>
+      </html:section>
+
+      <html:section class="card">
+        <html:h2>Actions</html:h2>
+        <html:div class="actions">
+          <html:button id="generatePlanBtn">Generate Plan</html:button>
+          <html:button id="runImportBtn" class="primary">Run Import</html:button>
+          <html:button id="copyCommandBtn">Copy Command</html:button>
+          <html:button id="closeBtn">Close</html:button>
+        </html:div>
+        <html:label for="statusBox">Status</html:label>
+        <html:textarea id="statusBox" rows="12" readonly="readonly"></html:textarea>
+      </html:section>
+    </html:div>
+  </html:div>
+  <script src="chrome://zotero-curator/content/dialog.js" />
+</window>

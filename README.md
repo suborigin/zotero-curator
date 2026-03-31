@@ -127,6 +127,8 @@ zotero-curator plan from-text \
   --tag self-evolving
 ```
 
+A Zotero 7 plugin MVP is also included under `plugins/zotero-curator-plugin` so you can launch curator imports from inside Zotero instead of juggling a terminal. See `docs/ZOTERO_PLUGIN.md`.
+
 Print temporary credentials for the current shell:
 
 ```bash

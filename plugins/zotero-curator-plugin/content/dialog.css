@@ -1,0 +1,110 @@
+window,
+.app-shell {
+  background: #f4efe6;
+  color: #1f241f;
+  font: 14px/1.5 Georgia, "Noto Serif SC", serif;
+}
+
+.app-shell {
+  padding: 18px;
+}
+
+.hero {
+  background: linear-gradient(135deg, #173b2f, #315e4b);
+  color: #f8f4ea;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.hero h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+}
+
+.hero p {
+  margin: 0;
+  opacity: 0.92;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 14px;
+}
+
+.card {
+  background: #fffaf0;
+  border: 1px solid #d8cbb3;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(58, 47, 31, 0.08);
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.field,
+.row {
+  margin-bottom: 10px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #bfae90;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fffdf7;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #d8cbb3;
+  color: #2a241c;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #1c6b4a;
+  color: #f5f0e5;
+}
+
+.hint {
+  color: #575142;
+  margin-top: 0;
+}
