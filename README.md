@@ -114,6 +114,8 @@ authorization page.
 
 By default it also opens Zotero's registered-applications page first, so you can
 copy the client key and client secret without manually hunting for that screen.
+If you are troubleshooting copy/paste issues, add `--oauth-show-client-secret` to
+echo the secret in plain text while you type it.
 
 Print temporary credentials for the current shell:
 
@@ -176,6 +178,7 @@ Key options:
 - `--download-cache-dir`: local PDF cache
 - `--dry-run`: no writes
 - `--oauth-authorize`: launch Zotero OAuth key exchange if API credentials are not already set
+- `--oauth-show-client-secret`: prompt for the client secret in plain text for debugging
 - `--delete-api-key-after`: revoke the temporary OAuth-derived key after sync
 - `--exclusive-target-collection`: move existing items into the requested collection instead of keeping prior collection memberships
 

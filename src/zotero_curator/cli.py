@@ -715,6 +715,7 @@ def prompt_for_oauth_client_credentials(
     client_secret: str | None,
     *,
     open_apps_page: bool = True,
+    show_secret: bool = False,
 ) -> tuple[str, str]:
     if client_key and client_secret:
         return client_key, client_secret
@@ -735,7 +736,10 @@ def prompt_for_oauth_client_credentials(
     if not client_key:
         client_key = input("Enter Zotero OAuth client key: ").strip()
     if not client_secret:
-        client_secret = getpass("Enter Zotero OAuth client secret: ").strip()
+        if show_secret:
+            client_secret = input("Enter Zotero OAuth client secret (visible): ").strip()
+        else:
+            client_secret = getpass("Enter Zotero OAuth client secret: ").strip()
     if not client_key or not client_secret:
         raise ZoteroError("OAuth client key and secret are required.")
     return client_key, client_secret
@@ -843,6 +847,7 @@ def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
         args.oauth_client_key or os.getenv("ZOTERO_OAUTH_CLIENT_KEY"),
         args.oauth_client_secret or os.getenv("ZOTERO_OAUTH_CLIENT_SECRET"),
         open_apps_page=args.oauth_open_registered_apps_page,
+        show_secret=args.oauth_show_client_secret,
     )
 
     callback_url = f"http://{args.oauth_callback_host}:{args.oauth_callback_port}/oauth/callback"
@@ -1141,6 +1146,11 @@ def run_auth_revoke(args: argparse.Namespace) -> int:
 def add_oauth_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--oauth-client-key", help="Zotero OAuth client key (or ZOTERO_OAUTH_CLIENT_KEY)")
     parser.add_argument("--oauth-client-secret", help="Zotero OAuth client secret (or ZOTERO_OAUTH_CLIENT_SECRET)")
+    parser.add_argument(
+        "--oauth-show-client-secret",
+        action="store_true",
+        help="Prompt for the OAuth client secret in plain text instead of hiding input (useful for troubleshooting)",
+    )
     parser.add_argument("--oauth-callback-host", default=DEFAULT_CALLBACK_HOST, help="Local callback host for OAuth browser flow")
     parser.add_argument("--oauth-callback-port", type=int, default=DEFAULT_CALLBACK_PORT, help="Local callback port for OAuth browser flow")
     parser.add_argument("--oauth-timeout", type=int, default=DEFAULT_OAUTH_TIMEOUT, help="Seconds to wait for the OAuth callback")
