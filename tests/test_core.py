@@ -1,14 +1,20 @@
 from pathlib import Path
+import builtins
 
 import zotero_curator.cli as cli
 
 from zotero_curator.cli import (
+    OAuthAccess,
     build_attachment_name,
+    build_oauth_authorize_url,
     canonicalize_item_collections,
     collection_path_from_key,
+    clear_env_exports,
     ensure_attachment,
     index_collections,
     parse_arxiv_id,
+    render_env_exports,
+    resolve_sync_credentials,
     resolve_collection_path_existing,
     strip_arxiv_version,
 )
@@ -156,3 +162,60 @@ def test_resolve_collection_with_false_parent_from_api() -> None:
     )
     assert chain == ["AI_ROOT", "LLM"]
     assert leaf == "LLM"
+
+
+def test_build_oauth_authorize_url_includes_requested_permissions() -> None:
+    url = build_oauth_authorize_url(
+        "temp-token",
+        key_name="temporary sync",
+        library_access=True,
+        notes_access=False,
+        write_access=True,
+        all_groups="none",
+    )
+    assert "oauth_token=temp-token" in url
+    assert "name=temporary+sync" in url
+    assert "library_access=1" in url
+    assert "notes_access=0" in url
+    assert "write_access=1" in url
+    assert "all_groups=none" in url
+
+
+def test_render_env_exports_powershell() -> None:
+    access = OAuthAccess(user_id="12345", api_key="secret", username="kenny")
+    out = render_env_exports(access, "powershell")
+    assert "$env:ZOTERO_USER_ID='12345'" in out
+    assert "$env:ZOTERO_API_KEY='secret'" in out
+    assert "$env:ZOTERO_USERNAME='kenny'" in out
+
+
+def test_clear_env_exports_cmd() -> None:
+    out = clear_env_exports("cmd")
+    assert "set ZOTERO_USER_ID=" in out
+    assert "set ZOTERO_API_KEY=" in out
+
+
+def test_resolve_sync_credentials_uses_oauth_when_requested(monkeypatch) -> None:
+    access = OAuthAccess(user_id="11", api_key="key-11", username="kenny")
+    monkeypatch.delenv("ZOTERO_USER_ID", raising=False)
+    monkeypatch.delenv("ZOTERO_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "perform_oauth_key_exchange", lambda args: access)
+    printed: list[str] = []
+    monkeypatch.setattr(builtins, "print", lambda *args, **kwargs: printed.append(" ".join(str(a) for a in args)))
+
+    args = cli.build_parser().parse_args(
+        [
+            "sync",
+            "--plan",
+            "dummy.yaml",
+            "--oauth-authorize",
+            "--print-env-after-oauth",
+        ]
+    )
+
+    user_id, api_key, oauth_access = resolve_sync_credentials(args)
+
+    assert user_id == "11"
+    assert api_key == "key-11"
+    assert oauth_access == access
+    assert any("ZOTERO_API_KEY" in line for line in printed)

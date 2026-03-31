@@ -95,6 +95,35 @@ export ZOTERO_USER_ID='YOUR_USER_ID'
 export ZOTERO_API_KEY='YOUR_PRIVATE_KEY'
 ```
 
+## Temporary OAuth Keys
+
+If you don't want to paste a long-lived API key into a shell or chat, `zotero-curator`
+can now start a browser OAuth flow, print shell exports for the resulting key, and
+optionally revoke that OAuth-derived key after a sync run.
+
+You first need a Zotero OAuth client key/secret for your app:
+
+```bash
+export ZOTERO_OAUTH_CLIENT_KEY='YOUR_CLIENT_KEY'
+export ZOTERO_OAUTH_CLIENT_SECRET='YOUR_CLIENT_SECRET'
+```
+
+Print temporary credentials for the current shell:
+
+```bash
+zotero-curator auth login --env-output-shell powershell
+```
+
+Run a sync by acquiring a temporary key on demand and revoking it automatically after
+the import completes:
+
+```bash
+zotero-curator sync \
+  --plan examples/plan.yaml \
+  --oauth-authorize \
+  --delete-api-key-after
+```
+
 ## Quick start
 
 ```bash
@@ -135,6 +164,8 @@ Key options:
 - `--data-dir`: Zotero local data dir (default: `~/Zotero`)
 - `--download-cache-dir`: local PDF cache
 - `--dry-run`: no writes
+- `--oauth-authorize`: launch Zotero OAuth key exchange if API credentials are not already set
+- `--delete-api-key-after`: revoke the temporary OAuth-derived key after sync
 
 ## Compatibility notes
 

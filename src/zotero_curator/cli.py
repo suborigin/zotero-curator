@@ -1,21 +1,34 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import http.client
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import sys
+import threading
 import time
+import webbrowser
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
 DEFAULT_BASE_URL = "https://api.zotero.org"
 API_VERSION = "3"
+OAUTH_REQUEST_URL = "https://www.zotero.org/oauth/request"
+OAUTH_ACCESS_URL = "https://www.zotero.org/oauth/access"
+OAUTH_AUTHORIZE_URL = "https://www.zotero.org/oauth/authorize"
+DEFAULT_CALLBACK_HOST = "127.0.0.1"
+DEFAULT_CALLBACK_PORT = 8765
+DEFAULT_OAUTH_TIMEOUT = 300
+DEFAULT_OAUTH_KEY_NAME = "zotero-curator temporary key"
 
 
 class ZoteroError(RuntimeError):
@@ -34,6 +47,14 @@ class PlanPaper:
     creators: list[dict[str, str]] | None = None
     tags: list[str] | None = None
     abstract: str | None = None
+
+
+@dataclass
+class OAuthAccess:
+    user_id: str
+    api_key: str
+    username: str | None = None
+    key_name: str | None = None
 
 
 class ZoteroClient:
@@ -139,6 +160,9 @@ class ZoteroClient:
 
     def delete_item(self, key: str, version: int) -> None:
         self._request("DELETE", f"/items/{key}", headers={"If-Unmodified-Since-Version": str(version)}, expect_json=False)
+
+    def delete_key(self, key: str | None = None) -> None:
+        self._request("DELETE", f"{self.base_url}/keys/{key or self.api_key}", expect_json=False, full_url=True)
 
     def get_item_children(self, key: str) -> list[dict[str, Any]]:
         return self._paginate(f"/items/{key}/children")
@@ -622,21 +646,307 @@ def ensure_attachment(
     }
 
 
-def run_sync(args: argparse.Namespace) -> int:
-    plan_path = Path(args.plan).resolve()
-    plan = load_plan(plan_path)
+def _oauth_percent_encode(value: str) -> str:
+    return parse.quote(value, safe="~-._")
 
+
+def _oauth_signature(
+    method: str,
+    url: str,
+    params: list[tuple[str, str]],
+    consumer_secret: str,
+    token_secret: str | None = None,
+) -> str:
+    normalized = "&".join(
+        f"{_oauth_percent_encode(k)}={_oauth_percent_encode(v)}"
+        for k, v in sorted(params)
+    )
+    parts = parse.urlsplit(url)
+    normalized_url = f"{parts.scheme}://{parts.netloc}{parts.path}"
+    base_string = "&".join(
+        [
+            _oauth_percent_encode(method.upper()),
+            _oauth_percent_encode(normalized_url),
+            _oauth_percent_encode(normalized),
+        ]
+    )
+    signing_key = f"{_oauth_percent_encode(consumer_secret)}&{_oauth_percent_encode(token_secret or '')}"
+    digest = hmac.new(signing_key.encode("utf-8"), base_string.encode("utf-8"), hashlib.sha1).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _oauth_header(params: dict[str, str]) -> str:
+    parts = [f'{_oauth_percent_encode(k)}="{_oauth_percent_encode(v)}"' for k, v in sorted(params.items())]
+    return "OAuth " + ", ".join(parts)
+
+
+def _oauth_base_params(consumer_key: str, token: str | None = None) -> dict[str, str]:
+    params = {
+        "oauth_consumer_key": consumer_key,
+        "oauth_nonce": secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_version": "1.0",
+    }
+    if token:
+        params["oauth_token"] = token
+    return params
+
+
+def _parse_form_encoded(payload: bytes) -> dict[str, str]:
+    data = parse.parse_qs(payload.decode("utf-8"), keep_blank_values=True)
+    return {k: values[0] for k, values in data.items()}
+
+
+def _signed_oauth_post(
+    url: str,
+    *,
+    consumer_key: str,
+    consumer_secret: str,
+    token: str | None = None,
+    token_secret: str | None = None,
+    callback_url: str | None = None,
+    verifier: str | None = None,
+) -> dict[str, str]:
+    oauth_params = _oauth_base_params(consumer_key, token=token)
+    if callback_url:
+        oauth_params["oauth_callback"] = callback_url
+    if verifier:
+        oauth_params["oauth_verifier"] = verifier
+
+    query_params = parse.parse_qsl(parse.urlsplit(url).query, keep_blank_values=True)
+    oauth_params["oauth_signature"] = _oauth_signature(
+        "POST",
+        url,
+        [*query_params, *oauth_params.items()],
+        consumer_secret,
+        token_secret=token_secret,
+    )
+    req = request.Request(
+        url,
+        method="POST",
+        headers={
+            "Authorization": _oauth_header(oauth_params),
+            "Content-Length": "0",
+            "User-Agent": "zotero-curator/1.0",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=120) as resp:
+            return _parse_form_encoded(resp.read())
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise ZoteroError(f"OAuth POST {url} failed: HTTP {exc.code} {body}") from exc
+
+
+def build_oauth_authorize_url(
+    request_token: str,
+    *,
+    key_name: str,
+    library_access: bool,
+    notes_access: bool,
+    write_access: bool,
+    all_groups: str,
+) -> str:
+    params = {
+        "oauth_token": request_token,
+        "name": key_name,
+        "library_access": "1" if library_access else "0",
+        "notes_access": "1" if notes_access else "0",
+        "write_access": "1" if write_access else "0",
+        "all_groups": all_groups,
+    }
+    return f"{OAUTH_AUTHORIZE_URL}?{parse.urlencode(params)}"
+
+
+def _wait_for_oauth_callback(host: str, port: int, timeout: int) -> dict[str, str]:
+    state: dict[str, dict[str, str] | threading.Event] = {
+        "params": {},
+        "event": threading.Event(),
+    }
+
+    class CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            query = parse.parse_qs(parse.urlsplit(self.path).query, keep_blank_values=True)
+            state["params"] = {k: values[0] for k, values in query.items()}
+            body = b"zotero-curator OAuth authorization complete. You can return to the terminal.\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            state["event"].set()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = HTTPServer((host, port), CallbackHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        if not state["event"].wait(timeout):
+            raise ZoteroError(
+                f"Timed out waiting for Zotero OAuth callback on http://{host}:{port} after {timeout}s"
+            )
+        return state["params"]  # type: ignore[return-value]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
+    consumer_key = args.oauth_client_key or os.getenv("ZOTERO_OAUTH_CLIENT_KEY")
+    consumer_secret = args.oauth_client_secret or os.getenv("ZOTERO_OAUTH_CLIENT_SECRET")
+    if not consumer_key or not consumer_secret:
+        raise ZoteroError(
+            "Missing OAuth client credentials. Set ZOTERO_OAUTH_CLIENT_KEY and "
+            "ZOTERO_OAUTH_CLIENT_SECRET, or pass --oauth-client-key/--oauth-client-secret."
+        )
+
+    callback_url = f"http://{args.oauth_callback_host}:{args.oauth_callback_port}/oauth/callback"
+    request_token_info = _signed_oauth_post(
+        OAUTH_REQUEST_URL,
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        callback_url=callback_url,
+    )
+    request_token = request_token_info.get("oauth_token")
+    request_token_secret = request_token_info.get("oauth_token_secret")
+    if not request_token or not request_token_secret:
+        raise ZoteroError("OAuth request token response did not include oauth_token and oauth_token_secret.")
+
+    authorize_url = build_oauth_authorize_url(
+        request_token,
+        key_name=args.oauth_key_name,
+        library_access=args.oauth_library_access,
+        notes_access=args.oauth_notes_access,
+        write_access=args.oauth_write_access,
+        all_groups=args.oauth_all_groups,
+    )
+    print(f"Open Zotero authorization URL: {authorize_url}", file=sys.stderr)
+    if args.oauth_open_browser:
+        webbrowser.open(authorize_url)
+
+    callback_params = _wait_for_oauth_callback(
+        args.oauth_callback_host,
+        args.oauth_callback_port,
+        args.oauth_timeout,
+    )
+    if callback_params.get("oauth_token") != request_token:
+        raise ZoteroError("OAuth callback token did not match the original request token.")
+    verifier = callback_params.get("oauth_verifier")
+    if not verifier:
+        raise ZoteroError("OAuth callback did not include oauth_verifier.")
+
+    access_info = _signed_oauth_post(
+        OAUTH_ACCESS_URL,
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        token=request_token,
+        token_secret=request_token_secret,
+        verifier=verifier,
+    )
+    api_key = access_info.get("oauth_token_secret")
+    user_id = access_info.get("userID")
+    if not api_key or not user_id:
+        raise ZoteroError("OAuth access token response did not include userID and oauth_token_secret.")
+
+    return OAuthAccess(
+        user_id=user_id,
+        api_key=api_key,
+        username=access_info.get("username"),
+        key_name=args.oauth_key_name,
+    )
+
+
+def render_env_exports(access: OAuthAccess, shell: str) -> str:
+    shell = shell.lower()
+    if shell == "json":
+        return json.dumps(
+            {
+                "ZOTERO_USER_ID": access.user_id,
+                "ZOTERO_API_KEY": access.api_key,
+                "ZOTERO_USERNAME": access.username,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    if shell == "powershell":
+        lines = [
+            f"$env:ZOTERO_USER_ID='{access.user_id}'",
+            f"$env:ZOTERO_API_KEY='{access.api_key}'",
+        ]
+        if access.username:
+            lines.append(f"$env:ZOTERO_USERNAME='{access.username}'")
+        return "\n".join(lines)
+    if shell == "cmd":
+        lines = [
+            f"set ZOTERO_USER_ID={access.user_id}",
+            f"set ZOTERO_API_KEY={access.api_key}",
+        ]
+        if access.username:
+            lines.append(f"set ZOTERO_USERNAME={access.username}")
+        return "\n".join(lines)
+    if shell == "bash":
+        lines = [
+            f"export ZOTERO_USER_ID='{access.user_id}'",
+            f"export ZOTERO_API_KEY='{access.api_key}'",
+        ]
+        if access.username:
+            lines.append(f"export ZOTERO_USERNAME='{access.username}'")
+        return "\n".join(lines)
+    raise ZoteroError(f"Unsupported shell format: {shell}")
+
+
+def clear_env_exports(shell: str) -> str:
+    shell = shell.lower()
+    if shell == "powershell":
+        return "\n".join(
+            [
+                "Remove-Item Env:ZOTERO_USER_ID -ErrorAction SilentlyContinue",
+                "Remove-Item Env:ZOTERO_API_KEY -ErrorAction SilentlyContinue",
+                "Remove-Item Env:ZOTERO_USERNAME -ErrorAction SilentlyContinue",
+            ]
+        )
+    if shell == "cmd":
+        return "\n".join(["set ZOTERO_USER_ID=", "set ZOTERO_API_KEY=", "set ZOTERO_USERNAME="])
+    if shell == "bash":
+        return "unset ZOTERO_USER_ID ZOTERO_API_KEY ZOTERO_USERNAME"
+    if shell == "json":
+        return json.dumps({"unset": ["ZOTERO_USER_ID", "ZOTERO_API_KEY", "ZOTERO_USERNAME"]}, indent=2)
+    raise ZoteroError(f"Unsupported shell format: {shell}")
+
+
+def resolve_sync_credentials(args: argparse.Namespace) -> tuple[str, str, OAuthAccess | None]:
     user_id = args.user_id or os.getenv("ZOTERO_USER_ID")
     api_key = args.api_key or os.getenv("ZOTERO_API_KEY")
+    oauth_access: OAuthAccess | None = None
+
     if not args.dry_run and (not user_id or not api_key):
-        raise ZoteroError("Missing credentials. Set ZOTERO_USER_ID and ZOTERO_API_KEY.")
+        if not args.oauth_authorize:
+            raise ZoteroError(
+                "Missing credentials. Set ZOTERO_USER_ID and ZOTERO_API_KEY, "
+                "pass --user-id/--api-key, or use --oauth-authorize."
+            )
+        oauth_access = perform_oauth_key_exchange(args)
+        user_id = oauth_access.user_id
+        api_key = oauth_access.api_key
+        if args.print_env_after_oauth:
+            print(render_env_exports(oauth_access, args.env_output_shell))
+
     if args.dry_run:
         user_id = user_id or "0"
         api_key = api_key or "DRY_RUN"
 
-    global_tags = sorted(set([*(plan.get("global_tags") or []), *(args.tag or [])]))
+    return user_id, api_key, oauth_access
 
-    client = ZoteroClient(user_id=user_id, api_key=api_key, base_url=args.base_url)
+
+def run_sync_with_client(args: argparse.Namespace, client: ZoteroClient) -> int:
+    plan_path = Path(args.plan).resolve()
+    plan = load_plan(plan_path)
+
+    global_tags = sorted(set([*(plan.get("global_tags") or []), *(args.tag or [])]))
     collections = [] if args.dry_run else client.list_collections()
     cache = build_collection_cache(collections)
 
@@ -743,6 +1053,82 @@ def run_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_sync(args: argparse.Namespace) -> int:
+    user_id, api_key, oauth_access = resolve_sync_credentials(args)
+    client = ZoteroClient(user_id=user_id, api_key=api_key, base_url=args.base_url)
+    try:
+        return run_sync_with_client(args, client)
+    finally:
+        if oauth_access and args.delete_api_key_after:
+            try:
+                client.delete_key(oauth_access.api_key)
+                print("Revoked temporary Zotero API key after sync.", file=sys.stderr)
+            except Exception as exc:  # pylint: disable=broad-except
+                print(f"WARNING: Failed to revoke temporary Zotero API key: {exc}", file=sys.stderr)
+
+
+def run_auth_login(args: argparse.Namespace) -> int:
+    access = perform_oauth_key_exchange(args)
+    print(render_env_exports(access, args.env_output_shell))
+    return 0
+
+
+def run_auth_revoke(args: argparse.Namespace) -> int:
+    api_key = args.api_key or os.getenv("ZOTERO_API_KEY")
+    user_id = args.user_id or os.getenv("ZOTERO_USER_ID") or "0"
+    if not api_key:
+        raise ZoteroError("Missing API key to revoke. Pass --api-key or set ZOTERO_API_KEY.")
+    ZoteroClient(user_id=user_id, api_key=api_key, base_url=args.base_url).delete_key(api_key)
+    if args.print_env_cleanup:
+        print(clear_env_exports(args.env_output_shell))
+    return 0
+
+
+def add_oauth_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--oauth-client-key", help="Zotero OAuth client key (or ZOTERO_OAUTH_CLIENT_KEY)")
+    parser.add_argument("--oauth-client-secret", help="Zotero OAuth client secret (or ZOTERO_OAUTH_CLIENT_SECRET)")
+    parser.add_argument("--oauth-callback-host", default=DEFAULT_CALLBACK_HOST, help="Local callback host for OAuth browser flow")
+    parser.add_argument("--oauth-callback-port", type=int, default=DEFAULT_CALLBACK_PORT, help="Local callback port for OAuth browser flow")
+    parser.add_argument("--oauth-timeout", type=int, default=DEFAULT_OAUTH_TIMEOUT, help="Seconds to wait for the OAuth callback")
+    parser.add_argument("--oauth-key-name", default=DEFAULT_OAUTH_KEY_NAME, help="Label shown on the temporary Zotero key")
+    parser.add_argument(
+        "--oauth-library-access",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Request personal library read access during OAuth (default: enabled)",
+    )
+    parser.add_argument(
+        "--oauth-notes-access",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Request personal notes read access during OAuth (default: disabled)",
+    )
+    parser.add_argument(
+        "--oauth-write-access",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Request personal library write access during OAuth (default: enabled)",
+    )
+    parser.add_argument(
+        "--oauth-all-groups",
+        choices=["none", "read", "write"],
+        default="none",
+        help="Requested access level for all current and future groups (default: none)",
+    )
+    parser.add_argument(
+        "--oauth-open-browser",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Open the Zotero authorization URL in a browser automatically (default: enabled)",
+    )
+    parser.add_argument(
+        "--env-output-shell",
+        choices=["powershell", "bash", "cmd", "json"],
+        default="powershell" if os.name == "nt" else "bash",
+        help="Output format for exported credentials",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Automate Zotero curation workflows.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -777,6 +1163,44 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Auto-fill title/date/authors/abstract from arXiv when arxiv_id is available (default: enabled)",
     )
+    sync.add_argument(
+        "--oauth-authorize",
+        action="store_true",
+        help="Launch a browser OAuth flow when API credentials are not already set",
+    )
+    sync.add_argument(
+        "--delete-api-key-after",
+        action="store_true",
+        help="Revoke the temporary OAuth-derived key after sync completes",
+    )
+    sync.add_argument(
+        "--print-env-after-oauth",
+        action="store_true",
+        help="Print shell exports for the OAuth-derived credentials before running sync",
+    )
+    add_oauth_arguments(sync)
+
+    auth = sub.add_parser("auth", help="Manage Zotero OAuth-derived API credentials")
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+
+    auth_login = auth_sub.add_parser("login", help="Run Zotero OAuth key exchange and print shell exports")
+    add_oauth_arguments(auth_login)
+
+    auth_revoke = auth_sub.add_parser("revoke", help="Revoke an API key and optionally print shell cleanup commands")
+    auth_revoke.add_argument("--api-key", help="API key to revoke (or ZOTERO_API_KEY)")
+    auth_revoke.add_argument("--user-id", help="User id for the authenticated client (optional for revocation)")
+    auth_revoke.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Zotero API base URL")
+    auth_revoke.add_argument(
+        "--env-output-shell",
+        choices=["powershell", "bash", "cmd", "json"],
+        default="powershell" if os.name == "nt" else "bash",
+        help="Output format for environment cleanup commands",
+    )
+    auth_revoke.add_argument(
+        "--print-env-cleanup",
+        action="store_true",
+        help="Print shell commands that remove ZOTERO_* environment variables after revocation",
+    )
 
     return parser
 
@@ -785,6 +1209,11 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.command == "sync":
         return run_sync(args)
+    if args.command == "auth":
+        if args.auth_command == "login":
+            return run_auth_login(args)
+        if args.auth_command == "revoke":
+            return run_auth_revoke(args)
     raise ZoteroError(f"Unsupported command: {args.command}")
 
 
