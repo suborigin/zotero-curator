@@ -112,6 +112,9 @@ If those env vars are not set, `zotero-curator` will prompt for the client key a
 client secret interactively in the current terminal before opening the browser
 authorization page.
 
+By default it also opens Zotero's registered-applications page first, so you can
+copy the client key and client secret without manually hunting for that screen.
+
 Print temporary credentials for the current shell:
 
 ```bash

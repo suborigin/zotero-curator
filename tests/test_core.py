@@ -236,8 +236,11 @@ def test_prompt_for_oauth_client_credentials_reads_missing_values(monkeypatch) -
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(builtins, "input", lambda prompt="": "client-key")
     monkeypatch.setattr(cli, "getpass", lambda prompt="": "client-secret")
+    opened: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
 
     client_key, client_secret = prompt_for_oauth_client_credentials(None, None)
 
     assert client_key == "client-key"
     assert client_secret == "client-secret"
+    assert opened == [cli.ZOTERO_REGISTERED_APPS_URL]

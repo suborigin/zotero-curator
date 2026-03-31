@@ -30,6 +30,7 @@ DEFAULT_CALLBACK_HOST = "127.0.0.1"
 DEFAULT_CALLBACK_PORT = 8765
 DEFAULT_OAUTH_TIMEOUT = 300
 DEFAULT_OAUTH_KEY_NAME = "zotero-curator temporary key"
+ZOTERO_REGISTERED_APPS_URL = "https://www.zotero.org/oauth/apps"
 
 
 class ZoteroError(RuntimeError):
@@ -711,6 +712,8 @@ def _parse_form_encoded(payload: bytes) -> dict[str, str]:
 def prompt_for_oauth_client_credentials(
     client_key: str | None,
     client_secret: str | None,
+    *,
+    open_apps_page: bool = True,
 ) -> tuple[str, str]:
     if client_key and client_secret:
         return client_key, client_secret
@@ -720,6 +723,13 @@ def prompt_for_oauth_client_credentials(
             "ZOTERO_OAUTH_CLIENT_SECRET, pass them as flags, or run from an interactive terminal "
             "so zotero-curator can prompt for them."
         )
+
+    if open_apps_page:
+        print(
+            f"Opening Zotero registered applications page: {ZOTERO_REGISTERED_APPS_URL}",
+            file=sys.stderr,
+        )
+        webbrowser.open(ZOTERO_REGISTERED_APPS_URL)
 
     if not client_key:
         client_key = input("Enter Zotero OAuth client key: ").strip()
@@ -831,6 +841,7 @@ def perform_oauth_key_exchange(args: argparse.Namespace) -> OAuthAccess:
     consumer_key, consumer_secret = prompt_for_oauth_client_credentials(
         args.oauth_client_key or os.getenv("ZOTERO_OAUTH_CLIENT_KEY"),
         args.oauth_client_secret or os.getenv("ZOTERO_OAUTH_CLIENT_SECRET"),
+        open_apps_page=args.oauth_open_registered_apps_page,
     )
 
     callback_url = f"http://{args.oauth_callback_host}:{args.oauth_callback_port}/oauth/callback"
@@ -1154,6 +1165,12 @@ def add_oauth_arguments(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Open the Zotero authorization URL in a browser automatically (default: enabled)",
+    )
+    parser.add_argument(
+        "--oauth-open-registered-apps-page",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Open Zotero's registered-applications page before prompting for OAuth client credentials (default: enabled)",
     )
     parser.add_argument(
         "--env-output-shell",
