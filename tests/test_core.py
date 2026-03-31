@@ -11,6 +11,7 @@ from zotero_curator.cli import (
     collection_path_from_key,
     clear_env_exports,
     ensure_attachment,
+    ensure_collection_path,
     index_collections,
     parse_arxiv_id,
     prompt_for_oauth_client_credentials,
@@ -173,6 +174,33 @@ def test_canonicalize_item_collections_can_move_item_exclusively() -> None:
     by_key, _, _ = index_collections(collections)
     out = canonicalize_item_collections(["OLD", "NEW"], "NEW", by_key, exclusive_target=True)
     assert out == ["NEW"]
+
+
+def test_ensure_collection_path_refreshes_before_creating_duplicate() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.created: list[tuple[str, str | None]] = []
+
+        def list_collections(self) -> list[dict[str, object]]:
+            return [
+                {"data": {"key": "AI", "name": "AI Agents", "parentCollection": None, "version": 1}},
+                {"data": {"key": "SELF", "name": "self evolving", "parentCollection": "AI", "version": 2}},
+            ]
+
+        def create_collection(self, name: str, parent_key: str | None = None) -> str:
+            self.created.append((name, parent_key))
+            return "CREATED"
+
+    client = FakeClient()
+    initial_collections = [
+        {"data": {"key": "AI", "name": "AI Agents", "parentCollection": None, "version": 1}},
+    ]
+    cache = cli.build_collection_cache(initial_collections)
+
+    key = ensure_collection_path(client, cache, initial_collections, "AI Agents/self evolving", dry_run=False)
+
+    assert key == "SELF"
+    assert client.created == []
 
 
 def test_build_oauth_authorize_url_includes_requested_permissions() -> None:

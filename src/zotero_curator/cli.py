@@ -484,11 +484,30 @@ def ensure_collection_path(client: ZoteroClient, cache: dict[tuple[str | None, s
     if not segments:
         raise ZoteroError(f"Invalid target_collection path: {path}")
 
-    by_key, by_slot, _ = index_collections(collections)
-    matched_chain, parent = resolve_collection_path_existing(path_segments=segments, by_key=by_key, by_slot=by_slot)
+    def resolve_existing(rows: list[dict[str, Any]]) -> tuple[list[str], str | None]:
+        by_key, by_slot, _ = index_collections(rows)
+        return resolve_collection_path_existing(path_segments=segments, by_key=by_key, by_slot=by_slot)
+
+    matched_chain, parent = resolve_existing(collections)
     matched_count = len(matched_chain)
     if matched_count == len(segments) and parent:
         return parent
+
+    if not dry_run:
+        latest_collections = client.list_collections()
+        latest_chain, latest_parent = resolve_existing(latest_collections)
+        if len(latest_chain) == len(segments) and latest_parent:
+            collections[:] = latest_collections
+            cache.clear()
+            cache.update(build_collection_cache(latest_collections))
+            return latest_parent
+        if len(latest_chain) > matched_count:
+            collections[:] = latest_collections
+            cache.clear()
+            cache.update(build_collection_cache(latest_collections))
+            matched_chain = latest_chain
+            parent = latest_parent
+            matched_count = len(latest_chain)
 
     # Fallback to cache-based traversal for remaining segments; create only the missing tail.
     # parent can be None (root) when no prefix exists.
