@@ -1,0 +1,105 @@
+global_tags:
+  - zotero-curated
+  - self-evolving-agents
+
+papers:
+  - title: "EvolveR"
+    item_type: preprint
+    arxiv_id: "2510.16079"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "principles", "trajectory-distillation"]
+  - title: "CASCADE"
+    item_type: preprint
+    arxiv_id: "2512.23880"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "skills", "scientific-agents"]
+  - title: "STELLA"
+    item_type: preprint
+    arxiv_id: "2507.02004"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "biomedical-agents", "tool-discovery"]
+  - title: "AutoSkill"
+    item_type: preprint
+    arxiv_id: "2603.01145"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "skills", "lifecycle-management"]
+  - title: "MemSkill"
+    item_type: preprint
+    arxiv_id: "2602.02474"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "memory", "skills"]
+  - title: "SkillWeaver"
+    item_type: preprint
+    arxiv_id: "2504.07079"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "web-agents", "skills"]
+  - title: "EvoSkill"
+    item_type: preprint
+    arxiv_id: "2603.02766"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "failure-analysis", "skills"]
+  - title: "Tool-R0"
+    item_type: preprint
+    arxiv_id: "2602.21320"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "tool-use", "zero-data"]
+  - title: "OpenClaw-RL"
+    item_type: preprint
+    arxiv_id: "2603.10165"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "reinforcement-learning", "online-learning"]
+  - title: "SAGE"
+    item_type: preprint
+    arxiv_id: "2512.17102"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "reinforcement-learning", "skills"]
+  - title: "SkillRL"
+    item_type: preprint
+    arxiv_id: "2602.08234"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "reinforcement-learning", "skills"]
+  - title: "SE-Agent"
+    item_type: preprint
+    arxiv_id: "2508.02085"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "trajectory-editing", "software-agents"]
+  - title: "Agent0"
+    item_type: preprint
+    arxiv_id: "2511.16043"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "reinforcement-learning", "self-play"]
+  - title: "MetaClaw"
+    item_type: preprint
+    arxiv_id: "2603.17187"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "online-learning", "meta-learning"]
+  - title: "SWE-RL"
+    item_type: preprint
+    arxiv_id: "2502.18449"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "reinforcement-learning", "software-engineering"]
+  - title: "Absolute Zero"
+    item_type: preprint
+    arxiv_id: "2505.03335"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "self-play", "reasoning"]
+  - title: "Self-Challenging"
+    item_type: preprint
+    arxiv_id: "2506.01716"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "multi-agent", "self-play"]
+  - title: "SiriuS"
+    item_type: preprint
+    arxiv_id: "2502.04780"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "multi-agent", "experience-replay"]
+  - title: "Misevolution"
+    item_type: preprint
+    arxiv_id: "2509.26354"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "safety", "risks"]
+  - title: "A Survey of Self-Evolving Agents"
+    item_type: preprint
+    arxiv_id: "2507.21046"
+    target_collection: "AI Agents/self evolving"
+    tags: ["agent-self-evolution", "survey"]

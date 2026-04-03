@@ -1,12 +1,15 @@
 {
   "manifest_version": 2,
   "name": "Zotero Curator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run local zotero-curator imports from inside Zotero.",
+  "homepage_url": "https://github.com/suborigin/zotero-curator",
+  "author": "suborigin",
   "applications": {
     "zotero": {
-      "id": "zotero-curator-plugin@suborigin",
-      "strict_min_version": "7.0"
+      "id": "zotero-curator-plugin@suborigin.com",
+      "strict_min_version": "6.999",
+      "strict_max_version": "9.*"
     }
   }
 }

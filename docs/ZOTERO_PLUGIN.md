@@ -40,6 +40,8 @@ That will produce:
 4. Select `dist/zotero-curator-plugin.xpi`
 5. Restart Zotero if prompted
 
+The current MVP targets Zotero's modern manifest-based plugin format and does not ship `install.rdf`.
+
 ## First-Run Notes
 
 The plugin asks for:

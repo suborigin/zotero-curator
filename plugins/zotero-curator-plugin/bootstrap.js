@@ -1,6 +1,6 @@
 "use strict";
 
-var { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
+var chromeHandle;
 
 const WINDOW_URL = "chrome://zotero/content/zoteroPane.xhtml";
 const DIALOG_URL = "chrome://zotero-curator/content/dialog.xhtml";
@@ -73,20 +73,8 @@ function removeMenuItem(win) {
   if (!win) {
     return;
   }
-  const item = win.document.getElementById(MENU_ID);
-  if (item) {
-    item.remove();
-  }
+  win.document.getElementById(MENU_ID)?.remove();
 }
-
-const windowListener = {
-  onOpenWindow(xulWindow) {
-    const win = xulWindow.docShell.domWindow;
-    win.addEventListener("load", () => ensureMenuItem(win), { once: true });
-  },
-  onCloseWindow() {},
-  onWindowTitleChange() {}
-};
 
 var ZoteroCuratorPlugin = {
   getConfig() {
@@ -108,7 +96,7 @@ var ZoteroCuratorPlugin = {
   },
 
   getSelectedCollectionPath() {
-    const win = Services.wm.getMostRecentWindow("navigator:browser");
+    const win = Zotero.getMainWindow();
     return win ? getCollectionPath(win) : "";
   },
 
@@ -159,21 +147,33 @@ var ZoteroCuratorPlugin = {
   }
 };
 
-function startup(data, reason) {
-  Services.wm.addListener(windowListener);
-  const enumerator = Services.wm.getEnumerator("navigator:browser");
-  while (enumerator.hasMoreElements()) {
-    ensureMenuItem(enumerator.getNext());
-  }
-}
-
-function shutdown(data, reason) {
-  Services.wm.removeListener(windowListener);
-  const enumerator = Services.wm.getEnumerator("navigator:browser");
-  while (enumerator.hasMoreElements()) {
-    removeMenuItem(enumerator.getNext());
-  }
-}
-
 function install() {}
+
+async function startup({ rootURI }) {
+  var aomStartup = Cc["@mozilla.org/addons/addon-manager-startup;1"].getService(Ci.amIAddonManagerStartup);
+  var manifestURI = Services.io.newURI(rootURI + "manifest.json");
+  chromeHandle = aomStartup.registerChrome(manifestURI, [
+    ["content", "zotero-curator", rootURI + "content/"]
+  ]);
+}
+
+async function onMainWindowLoad({ window }) {
+  ensureMenuItem(window);
+}
+
+async function onMainWindowUnload({ window }) {
+  removeMenuItem(window);
+}
+
+async function shutdown() {
+  if (chromeHandle) {
+    chromeHandle.destruct();
+    chromeHandle = null;
+  }
+  const win = Zotero.getMainWindow();
+  if (win) {
+    removeMenuItem(win);
+  }
+}
+
 function uninstall() {}
